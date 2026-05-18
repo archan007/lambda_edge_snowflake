@@ -1,0 +1,325 @@
+name: Deploy Edge Lambdas (viewer-request + origin-request)
+
+# ─────────────────────────────────────────────────────────────────────────
+# Deploys the two Lambda@Edge functions to per-environment function names:
+#
+#   DEV:   snowflake-api-edge-viewer-request-dev
+#          snowflake-api-edge-origin-request-dev
+#   UAT:   snowflake-api-edge-viewer-request-uat
+#          snowflake-api-edge-origin-request-uat
+#   PROD:  snowflake-api-edge-viewer-request-prod
+#          snowflake-api-edge-origin-request-prod
+#
+# Per-environment differences baked in at BUILD TIME (Lambda@Edge has no
+# env vars, so each env needs its own zip):
+#   - config_values.py is REPLACED with config_values_<env>.py before zipping
+#   - That file carries the per-env core lambda ARN and CORS origins
+#   - Each env's edge function has its own IAM execution role that allows
+#     it to invoke ONLY its env's core lambda
+#
+# Workflow STOPS after publishing the new version. The version ARN is
+# printed in the workflow summary; paste it into the matching CloudFront
+# distribution's /api/* behavior to activate.
+# ─────────────────────────────────────────────────────────────────────────
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'edge-v*.*.*'
+    paths:
+      - 'edge_lambda/**'
+      - '.github/workflows/deploy-edge.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - uat
+          - prod
+
+env:
+  PYTHON_VERSION: '3.13'
+  AWS_REGION: us-east-1
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  # =========================================================================
+  # BUILD — build THREE pairs of zips, one pair per environment
+  #
+  # We could build one pair and only swap config at deploy time, but that
+  # would couple build and deploy and require AWS creds during build. Doing
+  # it here keeps the build self-contained and deterministic.
+  # =========================================================================
+  build:
+    name: Build Edge Lambda Packages (per env)
+    runs-on: ubuntu-latest
+    outputs:
+      commit_short: ${{ steps.meta.outputs.commit_short }}
+      timestamp:    ${{ steps.meta.outputs.timestamp }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Run edge function tests
+        run: |
+          pip install pytest boto3
+          python -m pytest tests/test_edge_lambda.py -v
+
+      - name: Capture build metadata
+        id: meta
+        run: |
+          echo "commit_short=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+          echo "timestamp=$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+
+      - name: Build per-environment packages
+        run: |
+          set -euo pipefail
+          COMMIT=${{ steps.meta.outputs.commit_short }}
+          TS=${{ steps.meta.outputs.timestamp }}
+
+          # Build a function pair (viewer + origin) for each environment.
+          # For each env we:
+          #   1. Stage shared modules (cf_events.py, config.py)
+          #   2. Overwrite config_values.py with the env-specific variant
+          #   3. Add the handler file
+          #   4. Zip it up
+          for ENV in dev uat prod; do
+            for HANDLER in viewer_request origin_request; do
+              SHORT="${HANDLER%_request}"            # viewer | origin
+              STAGE="build/${ENV}/${HANDLER}"
+              mkdir -p "${STAGE}"
+
+              cp edge_lambda/cf_events.py             "${STAGE}/"
+              cp edge_lambda/config.py                "${STAGE}/"
+              cp "edge_lambda/config_values_${ENV}.py" "${STAGE}/config_values.py"
+              cp "edge_lambda/${HANDLER}.py"          "${STAGE}/"
+
+              ZIP="edge-${SHORT}-${ENV}-${COMMIT}-${TS}.zip"
+              ( cd "${STAGE}" && zip -qr "../../../${ZIP}" . )
+              echo "Built ${ZIP} ($(du -h ${ZIP} | cut -f1))"
+            done
+          done
+
+          ls -la edge-*.zip
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: edge-lambda-packages
+          path: edge-*.zip
+          retention-days: 7
+
+  # =========================================================================
+  # DEPLOY DEV
+  # =========================================================================
+  deploy-dev:
+    name: Publish Edge to DEV
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment:
+      name: dev
+    env:
+      VIEWER_FN: snowflake-api-edge-viewer-request-dev
+      ORIGIN_FN: snowflake-api-edge-origin-request-dev
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: edge-lambda-packages
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Publish viewer-request DEV version
+        id: publish_viewer
+        run: |
+          ZIP=$(ls edge-viewer-dev-*.zip | head -1)
+          ARN=$(aws lambda update-function-code \
+            --region ${{ env.AWS_REGION }} \
+            --function-name ${{ env.VIEWER_FN }} \
+            --zip-file "fileb://${ZIP}" \
+            --publish \
+            --query 'FunctionArn' \
+            --output text)
+          echo "Published viewer-request: $ARN"
+          echo "viewer_arn=$ARN" >> $GITHUB_OUTPUT
+
+      - name: Publish origin-request DEV version
+        id: publish_origin
+        run: |
+          ZIP=$(ls edge-origin-dev-*.zip | head -1)
+          ARN=$(aws lambda update-function-code \
+            --region ${{ env.AWS_REGION }} \
+            --function-name ${{ env.ORIGIN_FN }} \
+            --zip-file "fileb://${ZIP}" \
+            --publish \
+            --query 'FunctionArn' \
+            --output text)
+          echo "Published origin-request: $ARN"
+          echo "origin_arn=$ARN" >> $GITHUB_OUTPUT
+
+      - name: Deployment summary
+        run: |
+          echo "### ✅ Edge Lambdas — DEV Versions Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Viewer-request ARN:**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.publish_viewer.outputs.viewer_arn }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Origin-request ARN:**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.publish_origin.outputs.origin_arn }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ⚠️ Next step (manual)" >> $GITHUB_STEP_SUMMARY
+          echo "Update the **DEV** CloudFront distribution's \`/api/*\` behavior with the ARNs above." >> $GITHUB_STEP_SUMMARY
+          echo "Distribution deploy takes ~5-10 min to propagate." >> $GITHUB_STEP_SUMMARY
+
+  # =========================================================================
+  # DEPLOY UAT
+  # =========================================================================
+  deploy-uat:
+    name: Publish Edge to UAT
+    needs: build
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/edge-v')) ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'uat')
+    environment:
+      name: uat
+    env:
+      VIEWER_FN: snowflake-api-edge-viewer-request-uat
+      ORIGIN_FN: snowflake-api-edge-origin-request-uat
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: edge-lambda-packages
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_UAT }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Publish viewer-request UAT version
+        id: publish_viewer
+        run: |
+          ZIP=$(ls edge-viewer-uat-*.zip | head -1)
+          ARN=$(aws lambda update-function-code \
+            --region ${{ env.AWS_REGION }} \
+            --function-name ${{ env.VIEWER_FN }} \
+            --zip-file "fileb://${ZIP}" \
+            --publish \
+            --query 'FunctionArn' \
+            --output text)
+          echo "viewer_arn=$ARN" >> $GITHUB_OUTPUT
+
+      - name: Publish origin-request UAT version
+        id: publish_origin
+        run: |
+          ZIP=$(ls edge-origin-uat-*.zip | head -1)
+          ARN=$(aws lambda update-function-code \
+            --region ${{ env.AWS_REGION }} \
+            --function-name ${{ env.ORIGIN_FN }} \
+            --zip-file "fileb://${ZIP}" \
+            --publish \
+            --query 'FunctionArn' \
+            --output text)
+          echo "origin_arn=$ARN" >> $GITHUB_OUTPUT
+
+      - name: Deployment summary
+        run: |
+          echo "### ✅ Edge Lambdas — UAT Versions Published" >> $GITHUB_STEP_SUMMARY
+          echo "- Viewer ARN: \`${{ steps.publish_viewer.outputs.viewer_arn }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Origin ARN: \`${{ steps.publish_origin.outputs.origin_arn }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Tag: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ⚠️ Next step (manual)" >> $GITHUB_STEP_SUMMARY
+          echo "Update the **UAT** CloudFront distribution's \`/api/*\` behavior with the ARNs above." >> $GITHUB_STEP_SUMMARY
+
+  # =========================================================================
+  # DEPLOY PROD
+  # =========================================================================
+  deploy-prod:
+    name: Publish Edge to PROD
+    needs: [build, deploy-uat]
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/edge-v')) ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod')
+    environment:
+      name: prod
+    env:
+      VIEWER_FN: snowflake-api-edge-viewer-request-prod
+      ORIGIN_FN: snowflake-api-edge-origin-request-prod
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: edge-lambda-packages
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_PROD }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Publish viewer-request PROD version
+        id: publish_viewer
+        run: |
+          ZIP=$(ls edge-viewer-prod-*.zip | head -1)
+          ARN=$(aws lambda update-function-code \
+            --region ${{ env.AWS_REGION }} \
+            --function-name ${{ env.VIEWER_FN }} \
+            --zip-file "fileb://${ZIP}" \
+            --publish \
+            --query 'FunctionArn' \
+            --output text)
+          echo "viewer_arn=$ARN" >> $GITHUB_OUTPUT
+
+      - name: Publish origin-request PROD version
+        id: publish_origin
+        run: |
+          ZIP=$(ls edge-origin-prod-*.zip | head -1)
+          ARN=$(aws lambda update-function-code \
+            --region ${{ env.AWS_REGION }} \
+            --function-name ${{ env.ORIGIN_FN }} \
+            --zip-file "fileb://${ZIP}" \
+            --publish \
+            --query 'FunctionArn' \
+            --output text)
+          echo "origin_arn=$ARN" >> $GITHUB_OUTPUT
+
+      - name: Deployment summary
+        run: |
+          echo "### 🚀 Edge Lambdas — PROD Versions Published" >> $GITHUB_STEP_SUMMARY
+          echo "- Viewer ARN: \`${{ steps.publish_viewer.outputs.viewer_arn }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Origin ARN: \`${{ steps.publish_origin.outputs.origin_arn }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Tag: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ⚠️ Next step (manual)" >> $GITHUB_STEP_SUMMARY
+          echo "Update the **PROD** CloudFront distribution's \`/api/*\` behavior with the ARNs above." >> $GITHUB_STEP_SUMMARY
+          echo "Distribution deploy takes ~5-10 min to propagate." >> $GITHUB_STEP_SUMMARY

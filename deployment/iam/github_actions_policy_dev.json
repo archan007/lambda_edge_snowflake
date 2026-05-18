@@ -1,0 +1,19 @@
+{
+  "_comment": "Attach to the IAM user/role whose access key is stored as AWS_ACCESS_KEY_ID_<ENV>. Grants the GitHub Actions workflow permission to update and publish ONLY this environment's edge lambdas. Duplicate this file per env, changing -<env> suffix and the resource ARNs.",
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowEdgeLambdaUpdates",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:UpdateFunctionCode",
+        "lambda:PublishVersion",
+        "lambda:GetFunction"
+      ],
+      "Resource": [
+        "arn:aws:lambda:us-east-1:123456789012:function:snowflake-api-edge-viewer-request-dev",
+        "arn:aws:lambda:us-east-1:123456789012:function:snowflake-api-edge-origin-request-dev"
+      ]
+    }
+  ]
+}

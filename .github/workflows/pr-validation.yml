@@ -1,0 +1,99 @@
+name: PR Validation
+
+# ─────────────────────────────────────────────────────────────────────────
+# Runs on every pull request to main. Does NOT deploy anything.
+# Catches:
+#   - Edge function logic regressions (mocked tests, no AWS needed)
+#   - Core lambda logic regressions (tests under core_lambda/tests/)
+#   - Python syntax errors in either codebase
+#   - YAML errors in the deploy workflows
+# ─────────────────────────────────────────────────────────────────────────
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: '3.13'
+
+jobs:
+  # =========================================================================
+  # Edge function tests — fast, no AWS credentials needed
+  # =========================================================================
+  test-edge:
+    name: Test Edge Lambda Functions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install test dependencies
+        run: |
+          pip install pytest boto3
+
+      - name: Run edge lambda tests
+        run: |
+          python -m pytest tests/test_edge_lambda.py -v
+
+      - name: Syntax-check edge lambda modules
+        run: |
+          python -m py_compile edge_lambda/config.py
+          python -m py_compile edge_lambda/cf_events.py
+          python -m py_compile edge_lambda/viewer_request.py
+          python -m py_compile edge_lambda/origin_request.py
+
+  # =========================================================================
+  # Core lambda tests
+  # =========================================================================
+  test-core:
+    name: Test Core Lambda
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        working-directory: core_lambda
+        run: |
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Run core lambda tests
+        working-directory: core_lambda
+        run: |
+          # Add the core_lambda directory to PYTHONPATH so imports work
+          PYTHONPATH=. python -m pytest tests/ -v
+
+  # =========================================================================
+  # Validate workflow YAML files
+  # =========================================================================
+  validate-workflows:
+    name: Validate Workflow YAML
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate YAML syntax
+        run: |
+          # actionlint catches a lot more than basic YAML parsing,
+          # but for now we just check that PyYAML can parse each file
+          python -c "
+          import yaml, sys, pathlib
+          for f in pathlib.Path('.github/workflows').glob('*.yml'):
+              with open(f) as fh:
+                  yaml.safe_load(fh)
+              print(f'OK: {f}')
+          "

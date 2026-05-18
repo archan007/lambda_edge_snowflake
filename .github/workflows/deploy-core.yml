@@ -1,0 +1,213 @@
+name: Deploy Core Lambda (Snowflake Microservice)
+
+# ─────────────────────────────────────────────────────────────────────────
+# This workflow deploys the CORE Lambda (snowflake-api-core).
+# It is unchanged in spirit from the previous root-level workflow — only
+# the file paths have moved into core_lambda/ after the edge restructure.
+#
+# Path changes vs the original deploy.yml:
+#   lambda_function.py        → core_lambda/lambda_function.py
+#   router.py                 → core_lambda/router.py
+#   handlers/                 → core_lambda/handlers/
+#   services/                 → core_lambda/services/
+#   utils/                    → core_lambda/utils/
+#   config/                   → core_lambda/config/
+#   requirements.txt          → core_lambda/requirements.txt
+#
+# Path filter ensures this workflow ONLY runs when core_lambda/** changes,
+# so edge-only PRs don't trigger a core lambda redeploy.
+# ─────────────────────────────────────────────────────────────────────────
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*.*.*'
+    paths:
+      - 'core_lambda/**'
+      - '.github/workflows/deploy-core.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - uat
+          - prod
+
+env:
+  PYTHON_VERSION: '3.13'
+  AWS_REGION: us-east-1
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build:
+    name: Build Core Lambda Package
+    runs-on: ubuntu-latest
+    outputs:
+      artifact_name: ${{ steps.create-artifact.outputs.artifact_name }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Create build directory
+        run: |
+          mkdir -p build/package
+
+          # Copy ALL core lambda source files preserving directory structure
+          cp core_lambda/lambda_function.py build/package/
+          cp core_lambda/router.py          build/package/
+          cp core_lambda/health.py          build/package/
+          cp -r core_lambda/handlers        build/package/
+          cp -r core_lambda/services        build/package/
+          cp -r core_lambda/utils           build/package/
+          cp -r core_lambda/config          build/package/
+
+          echo "Build package contents:"
+          find build/package -name "*.py" | head -30
+
+      - name: Install dependencies for Linux (Lambda runtime)
+        run: |
+          pip install \
+            --platform manylinux2014_x86_64 \
+            --target=build/package \
+            --implementation cp \
+            --python-version ${{ env.PYTHON_VERSION }} \
+            --only-binary=:all: \
+            --upgrade \
+            -r core_lambda/requirements.txt
+
+      - name: Create deployment package
+        id: create-artifact
+        run: |
+          cd build/package
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          COMMIT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          ZIP_NAME="core-lambda-${COMMIT_SHA}-${TIMESTAMP}.zip"
+          zip -r ../../${ZIP_NAME} . -x "*.pyc" "__pycache__/*"
+          cd ../..
+          echo "artifact_name=${ZIP_NAME}" >> $GITHUB_OUTPUT
+          echo "Package size: $(du -h ${ZIP_NAME} | cut -f1)"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-lambda-package
+          path: "*.zip"
+          retention-days: 7
+
+  deploy-dev:
+    name: Deploy Core to DEV
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment:
+      name: dev
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: core-lambda-package
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload to S3
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET_DEV }}
+          ARTIFACT_NAME: ${{ needs.build.outputs.artifact_name }}
+        run: |
+          aws s3 cp ${ARTIFACT_NAME} s3://${S3_BUCKET}/lambda-deployments/${ARTIFACT_NAME}
+          echo "Deployed to s3://${S3_BUCKET}/lambda-deployments/${ARTIFACT_NAME}"
+
+      - name: Deployment summary
+        run: |
+          echo "### ✅ Core Lambda — DEV Deployment Successful" >> $GITHUB_STEP_SUMMARY
+          echo "- **Package**: ${{ needs.build.outputs.artifact_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **S3 Location**: s3://${{ secrets.S3_BUCKET_DEV }}/lambda-deployments/${{ needs.build.outputs.artifact_name }}" >> $GITHUB_STEP_SUMMARY
+
+  deploy-uat:
+    name: Deploy Core to UAT
+    needs: build
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'uat')
+    environment:
+      name: uat
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: core-lambda-package
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_UAT }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload to S3
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET_UAT }}
+          ARTIFACT_NAME: ${{ needs.build.outputs.artifact_name }}
+        run: |
+          aws s3 cp ${ARTIFACT_NAME} s3://${S3_BUCKET}/lambda-deployments/${ARTIFACT_NAME}
+
+      - name: Deployment summary
+        run: |
+          echo "### ✅ Core Lambda — UAT Deployment Successful" >> $GITHUB_STEP_SUMMARY
+          echo "- **Package**: ${{ needs.build.outputs.artifact_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+
+  deploy-prod:
+    name: Deploy Core to PROD
+    needs: [build, deploy-uat]
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod')
+    environment:
+      name: prod
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: core-lambda-package
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_PROD }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload to S3
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET_PROD }}
+          ARTIFACT_NAME: ${{ needs.build.outputs.artifact_name }}
+        run: |
+          aws s3 cp ${ARTIFACT_NAME} s3://${S3_BUCKET}/lambda-deployments/${ARTIFACT_NAME}
+
+      - name: Deployment summary
+        run: |
+          echo "### 🚀 Core Lambda — PROD Deployment Successful" >> $GITHUB_STEP_SUMMARY
+          echo "- **Package**: ${{ needs.build.outputs.artifact_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY

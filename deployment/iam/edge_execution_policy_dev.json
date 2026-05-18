@@ -1,0 +1,22 @@
+{
+  "_comment": "DEV execution policy for snowflake-api-edge-role-dev. Allows the DEV edge lambdas to invoke ONLY the DEV core lambda. Replace <account-id> with the actual AWS account ID before applying.",
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowInvokeCoreLambdaDev",
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:aws:lambda:us-east-1:123456789012:function:snowflake-api-core-dev"
+    },
+    {
+      "Sid": "AllowCloudWatchLogsInAllRegions",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "arn:aws:logs:*:*:log-group:/aws/lambda/us-east-1.*:*"
+    }
+  ]
+}

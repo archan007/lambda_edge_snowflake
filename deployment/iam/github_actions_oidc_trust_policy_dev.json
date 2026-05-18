@@ -1,0 +1,19 @@
+{
+  "_comment": "Trust policy for the IAM role assumed by GitHub Actions in the 'dev' environment. The sub condition is scoped to the 'dev' GitHub Environment so only that job can assume this role. Replace 123456789012 with your account ID and archan007/snowflake_Lambda_prj with your repo.",
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+          "token.actions.githubusercontent.com:sub": "repo:archan007/snowflake_Lambda_prj:environment:dev"
+        }
+      }
+    }
+  ]
+}

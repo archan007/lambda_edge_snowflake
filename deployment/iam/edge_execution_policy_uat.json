@@ -1,0 +1,22 @@
+{
+  "_comment": "UAT execution policy for snowflake-api-edge-role-uat. Allows the UAT edge lambdas to invoke ONLY the UAT core lambda.",
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowInvokeCoreLambdaUat",
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:aws:lambda:us-east-1:123456789012:function:snowflake-api-core-uat"
+    },
+    {
+      "Sid": "AllowCloudWatchLogsInAllRegions",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "arn:aws:logs:*:*:log-group:/aws/lambda/us-east-1.*:*"
+    }
+  ]
+}
