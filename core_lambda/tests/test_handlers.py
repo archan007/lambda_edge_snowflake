@@ -95,7 +95,7 @@ class TestAccountsHandler:
         
         # Verify the call was made with GOLD_C360 schema
         call_args = mock_client.call_procedure.call_args
-        assert call_args.kwargs["schema"] == "GOLD_C360"
+        assert call_args.kwargs["schema"] == "GOLD"
         assert call_args.kwargs["procedure_name"] == "sp_account_summary"
         
         # Verify response structure
@@ -113,15 +113,32 @@ class TestAccountsHandler:
             get_account_summary(event, None)
     
     @patch("handlers.accounts.snowflake_client")
-    def test_account_detail_not_found(self, mock_client):
+    def test_get_account_detail(self, mock_client):
+        import json
+        payload = {"accountId": "acc-001", "name": "Goldman Sachs", "status": "active"}
+        mock_client.call_procedure.return_value = (
+            [{"SP_GET_ACCOUNT_DETAILS": json.dumps(payload)}],
+            [],
+        )
+
+        from handlers.accounts import get_account_detail
+
+        result = get_account_detail({"pathParameters": {"id": "acc-001"}}, None)
+
+        call_args = mock_client.call_procedure.call_args
+        assert call_args.kwargs["schema"] == "GOLD"
+        assert call_args.kwargs["procedure_name"] == "sp_get_account_details"
+        assert call_args.kwargs["params"] == ("acc-001",)
+        assert result == {"data": payload}
+
+    @patch("handlers.accounts.snowflake_client")
+    def test_get_account_detail_empty(self, mock_client):
         mock_client.call_procedure.return_value = ([], [])
 
         from handlers.accounts import get_account_detail
 
-        event = {"pathParameters": {"id": "999"}}
-
-        with pytest.raises(NotFoundError):
-            get_account_detail(event, None)
+        result = get_account_detail({"pathParameters": {"id": "acc-999"}}, None)
+        assert result == {"data": {}}
 
     @patch("handlers.accounts.snowflake_client")
     def test_get_portfolio(self, mock_client):

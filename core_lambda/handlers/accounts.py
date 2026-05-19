@@ -20,7 +20,6 @@ from services.snowflake_client import snowflake_client
 from utils.validators import validate_enum, validate_int, validate_string
 from utils.converters import convert_rows_to_camel
 from utils.pagination import build_pagination
-from utils.exceptions import NotFoundError
 from config.data_products import DataProduct
 from config.enums import (
     REGION_KEYS,
@@ -40,7 +39,7 @@ from config.enums import (
 logger = logging.getLogger(__name__)
 
 # All account endpoints query the Customer 360 data product
-SCHEMA = DataProduct.GOLD_C360
+SCHEMA = DataProduct.GOLD
 
 
 def get_account_summary(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -94,23 +93,24 @@ def get_account_summary(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 def get_account_detail(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     GET /accounts/{id}
-    
-    Returns detailed information for a single account.
-    Source: GOLD_C360.sp_account_detail
+
+    Returns detailed information for a single account as Snowflake-serialized JSON.
+    Source: GOLD.sp_get_account_details
     """
     path_params = event.get("pathParameters") or {}
-    account_id = validate_int(path_params.get("id"), "id", min_value=1)
-    
+    account_id = validate_string(path_params.get("id"), "id", max_length=100)
+
     rows, _ = snowflake_client.call_procedure(
         schema=SCHEMA,
-        procedure_name="sp_account_detail",
+        procedure_name="sp_get_account_details",
         params=(account_id,),
     )
-    
+
     if not rows:
-        raise NotFoundError(f"Account {account_id} not found")
-    
-    return {"data": convert_rows_to_camel(rows)[0]}
+        return {"data": {}}
+
+    raw = list(rows[0].values())[0]
+    return {"data": json.loads(raw)}
 
 
 def get_account_activities(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
