@@ -34,6 +34,7 @@ class Router:
             # ===========================================================
             ("GET", "/account-summary",           accounts.get_account_summary),
             ("GET", "/account-managers",           accounts.get_account_managers),
+            ("GET", "/portfolio",                  accounts.get_portfolio),
             ("GET", "/accounts/{id}",              accounts.get_account_detail),
             ("GET", "/accounts/{id}/activities",   accounts.get_account_activities),
 

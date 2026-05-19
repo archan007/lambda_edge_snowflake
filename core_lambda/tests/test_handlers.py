@@ -124,6 +124,38 @@ class TestAccountsHandler:
             get_account_detail(event, None)
 
     @patch("handlers.accounts.snowflake_client")
+    def test_get_portfolio(self, mock_client):
+        import json
+        payload = {"summary": {"total": 5}, "segments": ["A", "B"]}
+        mock_client.call_procedure.return_value = (
+            [{"SP_GET_PORTFOLIO": json.dumps(payload)}],
+            [],
+        )
+
+        from handlers.accounts import get_portfolio
+
+        event = {"queryStringParameters": {"regionKey": "emea", "status": "active"}}
+        result = get_portfolio(event, None)
+
+        call_args = mock_client.call_procedure.call_args
+        assert call_args.kwargs["schema"] == "GOLD"
+        assert call_args.kwargs["procedure_name"] == "SP_GET_PORTFOLIO"
+        assert len(call_args.kwargs["params"]) == 9
+
+        assert "data" in result
+        assert "pagination" not in result
+        assert result["data"] == payload
+
+    @patch("handlers.accounts.snowflake_client")
+    def test_get_portfolio_empty(self, mock_client):
+        mock_client.call_procedure.return_value = ([], [])
+
+        from handlers.accounts import get_portfolio
+
+        result = get_portfolio({}, None)
+        assert result == {"data": {}}
+
+    @patch("handlers.accounts.snowflake_client")
     def test_get_account_managers(self, mock_client):
         mock_client.call_procedure.return_value = (
             [
@@ -236,11 +268,12 @@ class TestRouter:
         router = Router()
         
         routes = router.list_routes()
-        assert len(routes) >= 11  # 11 routes registered
+        assert len(routes) >= 12  # 12 routes registered
 
         paths = [path for _, path in routes]
         assert "/account-summary" in paths
         assert "/account-managers" in paths
+        assert "/portfolio" in paths
         assert "/accounts/{id}" in paths
 
 

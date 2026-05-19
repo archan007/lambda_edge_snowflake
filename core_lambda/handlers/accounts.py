@@ -12,6 +12,7 @@ Each handler:
 4. Formats and returns response
 """
 
+import json
 import logging
 from typing import Any, Dict
 
@@ -140,6 +141,45 @@ def get_account_activities(event: Dict[str, Any], context: Any) -> Dict[str, Any
         "data": convert_rows_to_camel(rows),
         "pagination": build_pagination(total, page, limit),
     }
+
+
+def get_portfolio(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    """
+    GET /portfolio
+
+    Returns complex portfolio data serialized as JSON by Snowflake itself.
+    Source: GOLD.SP_GET_PORTFOLIO
+    """
+    query = event.get("queryStringParameters") or {}
+
+    search = validate_string(query.get("search"), "search", max_length=200)
+    account_manager_key = validate_string(query.get("accountManagerKey"), "accountManagerKey", max_length=100)
+    region_key = validate_enum(query.get("regionKey"), "regionKey", REGION_KEYS)
+    segment_key = validate_enum(query.get("segmentKey"), "segmentKey", SEGMENT_KEYS)
+    product = validate_enum(query.get("product"), "product", PRIMARY_PRODUCTS)
+    usage_trend = validate_enum(query.get("usageTrend"), "usageTrend", USAGE_TRENDS)
+    renewal_days_min = validate_int(query.get("renewalDaysMin"), "renewalDaysMin", min_value=0)
+    renewal_days_max = validate_int(query.get("renewalDaysMax"), "renewalDaysMax", min_value=0)
+    status = validate_enum(query.get("status"), "status", ACCOUNT_STATUSES)
+
+    proc_params = (
+        search, account_manager_key, region_key, segment_key,
+        product, usage_trend, renewal_days_min, renewal_days_max, status,
+    )
+
+    rows, _ = snowflake_client.call_procedure(
+        schema=DataProduct.GOLD,
+        procedure_name="SP_GET_PORTFOLIO",
+        params=proc_params,
+    )
+
+    if not rows:
+        return {"data": {}}
+
+    # Snowflake returns the JSON as a single value in the first row.
+    # Column name is unpredictable for expression results, so grab by position.
+    raw = list(rows[0].values())[0]
+    return {"data": json.loads(raw)}
 
 
 def get_account_managers(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
