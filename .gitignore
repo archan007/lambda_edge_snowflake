@@ -23,3 +23,6 @@ env/
 .env.local
 *.pem
 aws-credentials.json
+
+# docs
+docs/

@@ -37,6 +37,7 @@ class Router:
             ("GET", "/portfolio",                  accounts.get_portfolio),
             ("GET", "/accounts/{id}",              accounts.get_account_detail),
             ("GET", "/accounts/{id}/activities",   accounts.get_account_activities),
+            ("GET", "/revenue-history/{id}",       accounts.get_revenue_history),
 
             # ===========================================================
             # GOLD_C360 - Generic Product 1 endpoints

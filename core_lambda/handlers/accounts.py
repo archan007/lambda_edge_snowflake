@@ -113,6 +113,29 @@ def get_account_detail(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     return {"data": json.loads(raw)}
 
 
+def get_revenue_history(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    """
+    GET /revenue-history/{id}
+
+    Returns customer revenue history as Snowflake-serialized JSON.
+    Source: GOLD.GET_CUSTOMER_REVENUE_HISTORY
+    """
+    path_params = event.get("pathParameters") or {}
+    account_id = validate_string(path_params.get("id"), "id", max_length=100)
+
+    rows, _ = snowflake_client.call_procedure(
+        schema=SCHEMA,
+        procedure_name="GET_CUSTOMER_REVENUE_HISTORY",
+        params=(account_id,),
+    )
+
+    if not rows:
+        return {"data": {}}
+
+    raw = list(rows[0].values())[0]
+    return {"data": json.loads(raw)}
+
+
 def get_account_activities(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     GET /accounts/{id}/activities
