@@ -208,10 +208,11 @@ def get_portfolio(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     renewal_days_min = validate_int(query.get("renewalDaysMin"), "renewalDaysMin", min_value=0)
     renewal_days_max = validate_int(query.get("renewalDaysMax"), "renewalDaysMax", min_value=0)
     status = validate_enum(query.get("status"), "status", ACCOUNT_STATUSES)
+    team_keys = validate_comma_separated(query.get("teamKeys"), "teamKeys")
 
     proc_params = (
         search, account_manager_key, region_key, segment_key,
-        product, usage_trend, renewal_days_min, renewal_days_max, status,
+        product, usage_trend, renewal_days_min, renewal_days_max, status, team_keys,
     )
 
     rows, _ = snowflake_client.call_procedure(
