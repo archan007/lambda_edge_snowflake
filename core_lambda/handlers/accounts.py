@@ -17,7 +17,7 @@ import logging
 from typing import Any, Dict
 
 from services.snowflake_client import snowflake_client
-from utils.validators import validate_enum, validate_int, validate_string
+from utils.validators import validate_comma_separated, validate_enum, validate_int, validate_string
 from utils.converters import convert_rows_to_camel
 from utils.pagination import build_pagination
 from config.data_products import DataProduct
@@ -65,12 +65,13 @@ def get_account_summary(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     status = validate_enum(query.get("status"), "status", ACCOUNT_STATUSES)
     sort = validate_enum(query.get("sort"), "sort", ACCOUNT_SORT_FIELDS) or "default"
     sort_order = validate_enum(query.get("sortOrder"), "sortOrder", SORT_ORDERS) or "desc"
-    
+    team_keys = validate_comma_separated(query.get("teamKeys"), "teamKeys")
+
     # Stored procedure parameters in order matching SP signature
     proc_params = (
         page, limit, search, account_manager_key, region_key, segment_key,
         product, usage_trend, renewal_days_min, renewal_days_max,
-        status, sort, sort_order,
+        status, sort, sort_order, team_keys,
     )
     
     rows, _ = snowflake_client.call_procedure(

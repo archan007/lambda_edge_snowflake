@@ -86,6 +86,45 @@ def validate_int(
     return int_value
 
 
+def validate_comma_separated(
+    value: Optional[str],
+    field_name: str,
+    max_length: Optional[int] = 500,
+) -> Optional[str]:
+    """
+    Validate a comma-separated string of values.
+
+    Strips whitespace from each item and returns a cleaned comma-separated
+    string, or None if not provided. Intended for multi-select filter params
+    passed directly to a stored procedure.
+
+    Args:
+        value: Raw comma-separated string (e.g. "NORTHEAST,SOUTHWEST")
+        field_name: Field name for error messages
+        max_length: Maximum total string length before splitting
+
+    Returns:
+        Cleaned comma-separated string, or None if empty/not provided
+
+    Raises:
+        ValidationError: If value exceeds max_length or contains empty tokens
+    """
+    if value is None or value == "":
+        return None
+
+    if not isinstance(value, str):
+        raise ValidationError(f"{field_name} must be a string")
+
+    if max_length and len(value) > max_length:
+        raise ValidationError(f"{field_name} exceeds max length of {max_length}")
+
+    parts = [p.strip() for p in value.split(",")]
+    if any(p == "" for p in parts):
+        raise ValidationError(f"{field_name} contains empty values")
+
+    return ",".join(parts)
+
+
 def validate_string(
     value: Optional[str],
     field_name: str,

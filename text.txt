@@ -1,0 +1,1 @@
+sp_account_summary just needs a new TEAM_KEYS VARCHAR DEFAULT NULL parameter at the end, and a WHERE clause filter like AND (TEAM_KEYS IS NULL OR TEAM_REGION_KEY IN (SELECT value FROM TABLE(SPLIT_TO_TABLE(TEAM_KEYS, ',')))).
