@@ -257,7 +257,8 @@ def get_account_team_regions(event: Dict[str, Any], context: Any) -> Dict[str, A
         params=(),
     )
 
-    return {"data": convert_rows_to_camel(rows)}
+    raw = list(rows[0].values())[0]
+    return json.loads(raw)
 
 
 # ============================================================
