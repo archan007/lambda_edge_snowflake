@@ -244,6 +244,22 @@ def get_account_managers(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     return {"data": convert_rows_to_camel(rows)}
 
 
+def get_account_team_regions(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    """
+    GET /account-team-region
+
+    Returns the full list of account team regions for dropdown population.
+    Source: GOLD.GET_ACCOUNT_TEAM_REGIONS()
+    """
+    rows, _ = snowflake_client.call_procedure(
+        schema=DataProduct.GOLD,
+        procedure_name="GET_ACCOUNT_TEAM_REGIONS",
+        params=(),
+    )
+
+    return {"data": convert_rows_to_camel(rows)}
+
+
 # ============================================================
 # FUTURE: POST/PUT examples (placeholder)
 # ============================================================
