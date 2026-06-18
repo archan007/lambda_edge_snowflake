@@ -66,6 +66,7 @@ def get_account_summary(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     sort = validate_enum(query.get("sort"), "sort", ACCOUNT_SORT_FIELDS) or "default"
     sort_order = validate_enum(query.get("sortOrder"), "sortOrder", SORT_ORDERS) or "desc"
     team_keys = validate_comma_separated(query.get("teamKeys"), "teamKeys")
+    logger.info(f"account-summary team_keys filter: {team_keys!r}")
 
     # Stored procedure parameters in order matching SP signature
     proc_params = (
@@ -258,6 +259,33 @@ def get_account_team_regions(event: Dict[str, Any], context: Any) -> Dict[str, A
         procedure_name="GET_ACCOUNT_TEAM_REGIONS",
         params=(),
     )
+
+    raw = list(rows[0].values())[0]
+    return json.loads(raw)
+
+
+def get_account_conversation(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    """
+    GET /account-conversation/{id}
+
+    Returns conversation details for a specific account.
+    Source: GOLD.sp_get_conversation_details
+    """
+    path_params = event.get("pathParameters") or {}
+    account_id = validate_string(path_params.get("id"), "id", max_length=100)
+
+    query = event.get("queryStringParameters") or {}
+    limit = validate_int(query.get("limit"), "limit", min_value=MIN_LIMIT, max_value=MAX_LIMIT, default=DEFAULT_LIMIT)
+    offset = validate_int(query.get("offset"), "offset", min_value=0, default=0)
+
+    rows, _ = snowflake_client.call_procedure(
+        schema=SCHEMA,
+        procedure_name="sp_get_conversation_details",
+        params=(account_id, limit, offset),
+    )
+
+    if not rows:
+        return {}
 
     raw = list(rows[0].values())[0]
     return json.loads(raw)
