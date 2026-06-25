@@ -38,6 +38,7 @@ class Router:
             ("GET", "/portfolio",                  accounts.get_portfolio),
             ("GET", "/accounts/{id}",              accounts.get_account_detail),
             ("GET", "/account-conversation/{id}", accounts.get_account_conversation),
+            ("GET", "/customer-lineage/{id}",     accounts.get_customer_lineage),
             ("GET", "/accounts/{id}/overview",     accounts.get_customer_overview),
             ("GET", "/accounts/{id}/activities",   accounts.get_account_activities),
             ("GET", "/revenue-history/{id}",       accounts.get_revenue_history),

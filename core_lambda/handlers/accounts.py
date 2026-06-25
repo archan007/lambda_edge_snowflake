@@ -264,6 +264,29 @@ def get_account_team_regions(event: Dict[str, Any], context: Any) -> Dict[str, A
     return json.loads(raw)
 
 
+def get_customer_lineage(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    """
+    GET /customer-lineage/{id}
+
+    Returns customer lineage data for a specific account.
+    Source: GOLD.sp_get_customer_lineage
+    """
+    path_params = event.get("pathParameters") or {}
+    account_id = validate_string(path_params.get("id"), "id", max_length=100)
+
+    rows, _ = snowflake_client.call_procedure(
+        schema=SCHEMA,
+        procedure_name="sp_get_customer_lineage",
+        params=(account_id,),
+    )
+
+    if not rows:
+        return {}
+
+    raw = list(rows[0].values())[0]
+    return json.loads(raw)
+
+
 def get_account_conversation(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     GET /account-conversation/{id}
