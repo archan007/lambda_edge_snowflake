@@ -300,11 +300,13 @@ def get_account_conversation(event: Dict[str, Any], context: Any) -> Dict[str, A
     query = event.get("queryStringParameters") or {}
     limit = validate_int(query.get("limit"), "limit", min_value=MIN_LIMIT, max_value=MAX_LIMIT, default=DEFAULT_LIMIT)
     offset = validate_int(query.get("offset"), "offset", min_value=0, default=0)
+    attendee_key = validate_comma_separated(query.get("attendeeKey"), "attendeeKey")
+    tracker_ids = validate_comma_separated(query.get("trackerIds"), "trackerIds")
 
     rows, _ = snowflake_client.call_procedure(
         schema=SCHEMA,
         procedure_name="sp_get_conversation_details",
-        params=(account_id, limit, offset),
+        params=(account_id, limit, offset, attendee_key, tracker_ids),
     )
 
     if not rows:
