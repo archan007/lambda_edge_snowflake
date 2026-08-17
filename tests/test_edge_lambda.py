@@ -84,10 +84,35 @@ class TestViewerRequest:
     def test_valid_bearer_passes_through(self):
         from viewer_request import lambda_handler
         event = make_cf_event(headers={"Authorization": "Bearer abc.def.ghi"})
-        resp = lambda_handler(event, None)
+        with patch("viewer_request.verify_azure_jwt", return_value=(True, {"sub": "user-1"}, None)):
+            resp = lambda_handler(event, None)
         # Pass-through: returns the request dict, not a response dict
         assert "method" in resp
         assert resp["method"] == "GET"
+
+    def test_invalid_signature_returns_401(self):
+        from viewer_request import lambda_handler
+        event = make_cf_event(headers={"Authorization": "Bearer abc.def.ghi"})
+        with patch("viewer_request.verify_azure_jwt", return_value=(False, None, "Invalid signature")):
+            resp = lambda_handler(event, None)
+        assert resp["status"] == "401"
+        assert "Invalid signature" in json.loads(resp["body"])["message"]
+
+    def test_expired_token_returns_401(self):
+        from viewer_request import lambda_handler
+        event = make_cf_event(headers={"Authorization": "Bearer abc.def.ghi"})
+        with patch("viewer_request.verify_azure_jwt", return_value=(False, None, "Token expired")):
+            resp = lambda_handler(event, None)
+        assert resp["status"] == "401"
+        assert "Token expired" in json.loads(resp["body"])["message"]
+
+    def test_wrong_audience_returns_401(self):
+        from viewer_request import lambda_handler
+        event = make_cf_event(headers={"Authorization": "Bearer abc.def.ghi"})
+        with patch("viewer_request.verify_azure_jwt", return_value=(False, None, "Token audience mismatch")):
+            resp = lambda_handler(event, None)
+        assert resp["status"] == "401"
+        assert "audience mismatch" in json.loads(resp["body"])["message"]
 
     def test_health_check_bypasses_auth(self):
         from viewer_request import lambda_handler

@@ -26,6 +26,8 @@ from config_values import (
     CORE_LAMBDA_ARN,
     CORE_LAMBDA_REGION,
     ALLOWED_ORIGINS,
+    AZURE_TENANT_ID,
+    AZURE_CLIENT_ID,
 )
 
 # ---------------------------------------------------------------------------
@@ -54,4 +56,6 @@ __all__ = [
     "CORS_ALLOW_HEADERS",
     "CORS_ALLOW_METHODS",
     "API_PATH_PREFIX",
+    "AZURE_TENANT_ID",
+    "AZURE_CLIENT_ID",
 ]

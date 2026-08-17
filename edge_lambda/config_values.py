@@ -31,3 +31,12 @@ ALLOWED_ORIGINS = [
     "https://your-dev-domain.example.com",
     "http://localhost:3000",
 ]
+
+# Azure Entra ID (Azure AD) app registration backing the DEV SSO login.
+# AZURE_TENANT_ID: Directory (tenant) ID.
+# AZURE_CLIENT_ID: Application (client) ID — must match the `aud` claim on
+#   incoming bearer tokens. If the exposed API scope uses an Application ID
+#   URI (e.g. "api://<client-id>") instead of the bare client ID, update the
+#   audience check in azure_jwt.verify_azure_jwt accordingly.
+AZURE_TENANT_ID = "00000000-0000-0000-0000-000000000000"
+AZURE_CLIENT_ID = "00000000-0000-0000-0000-000000000000"

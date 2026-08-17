@@ -15,3 +15,7 @@ ALLOWED_ORIGINS = [
     "https://your-uat-distribution.cloudfront.net",
     "https://your-uat-domain.example.com",
 ]
+
+# Azure Entra ID (Azure AD) app registration backing the UAT SSO login.
+AZURE_TENANT_ID = "00000000-0000-0000-0000-000000000000"
+AZURE_CLIENT_ID = "00000000-0000-0000-0000-000000000000"

@@ -59,6 +59,11 @@ package() {
   cp "${EDGE_DIR}/config_values_${ENV}.py" "${stage}/config_values.py"
   cp "${EDGE_DIR}/${handler_file}"         "${stage}/"
 
+  # viewer_request.py needs azure_jwt.py for bearer token verification.
+  if [[ "${handler_file}" == "viewer_request.py" ]]; then
+    cp "${EDGE_DIR}/azure_jwt.py" "${stage}/"
+  fi
+
   ( cd "${stage}" && zip -qr "${BUILD_DIR}/${zip_name}" . )
   echo "Built ${BUILD_DIR}/${zip_name}"
 }

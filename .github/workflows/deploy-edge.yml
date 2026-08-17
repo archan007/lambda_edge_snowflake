@@ -108,6 +108,11 @@ jobs:
               cp "edge_lambda/config_values_${ENV}.py" "${STAGE}/config_values.py"
               cp "edge_lambda/${HANDLER}.py"          "${STAGE}/"
 
+              # viewer_request.py needs azure_jwt.py for bearer token verification.
+              if [[ "${HANDLER}" == "viewer_request" ]]; then
+                cp edge_lambda/azure_jwt.py "${STAGE}/"
+              fi
+
               ZIP="edge-${SHORT}-${ENV}-${COMMIT}-${TS}.zip"
               ( cd "${STAGE}" && zip -qr "../../../${ZIP}" . )
               echo "Built ${ZIP} ($(du -h ${ZIP} | cut -f1))"

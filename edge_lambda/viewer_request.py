@@ -5,7 +5,9 @@ Runs on the CloudFront `viewer-request` event for the /api/* behavior.
 
 Responsibilities:
   1. Short-circuit OPTIONS preflight with a 200 + CORS headers (never hits origin)
-  2. Validate the Authorization header (Bearer token, non-empty)
+  2. Validate the Authorization header — Bearer token must be a real RS256 JWT
+     issued by the configured Azure Entra ID tenant (signature, aud, iss,
+     exp/nbf). See azure_jwt.py.
   3. On auth failure, return 401 directly — request never reaches origin-request
      or the core Lambda
   4. On success, return the request object unchanged so CloudFront continues
@@ -24,6 +26,10 @@ Limits to remember:
   - No VPC access
   - Response body up to 40 KB (only matters for 401 / preflight, both small)
   - Must be deployed to us-east-1 and associated as a numbered version
+  - Deployment package capped at 1 MB (AWS hard limit for viewer-request/
+    viewer-response, vs 50 MB for origin-request/response) — this is why
+    azure_jwt.py is stdlib-only rather than pulling in PyJWT/cryptography
+  - First request per warm container pays one JWKS fetch (~cached 24h after)
 
 Logs land in the CloudWatch region nearest the viewer, NOT us-east-1.
 Look in regional log groups named /aws/lambda/us-east-1.<function-name>
@@ -32,6 +38,7 @@ Look in regional log groups named /aws/lambda/us-east-1.<function-name>
 import json
 import logging
 
+from azure_jwt import verify_azure_jwt
 from cf_events import (
     get_cf_request,
     get_header,
@@ -39,6 +46,8 @@ from cf_events import (
 )
 from config import (
     ALLOWED_ORIGINS,
+    AZURE_CLIENT_ID,
+    AZURE_TENANT_ID,
     CORS_ALLOW_HEADERS,
     CORS_ALLOW_METHODS,
     DEFAULT_ORIGIN,
@@ -90,13 +99,14 @@ def _unauthorized_response(message, request_origin):
 
 def _validate_bearer(authorization_header):
     """
-    Match the v1 contract from utils/auth.py in the core Lambda:
-      - Must be present
-      - Must start with 'Bearer '
-      - Token portion must be non-empty after strip
+    Validate the Authorization header against Azure Entra ID:
+      - Must be present, 'Bearer <token>' shaped, non-empty
+      - Token must be a valid RS256 JWT signed by the configured tenant
+      - aud must match AZURE_CLIENT_ID, iss must match AZURE_TENANT_ID
+      - exp/nbf must be within the current time window
 
-    v2 will replace this with real Azure AD JWT validation. Keep this function
-    isolated so that swap is a one-place change.
+    See azure_jwt.py for why verification is hand-rolled (stdlib only)
+    instead of using PyJWT/python-jose.
     """
     if not authorization_header:
         return False, "Missing authorization token"
@@ -105,6 +115,10 @@ def _validate_bearer(authorization_header):
     token = authorization_header[7:].strip()
     if not token:
         return False, "Empty authorization token"
+
+    ok, _claims, error = verify_azure_jwt(token, AZURE_TENANT_ID, AZURE_CLIENT_ID)
+    if not ok:
+        return False, error
     return True, None
 
 
