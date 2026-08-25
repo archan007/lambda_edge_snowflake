@@ -1,0 +1,69 @@
+name: SonarQube Analysis
+
+# ─────────────────────────────────────────────────────────────────────────
+# Runs a SonarQube scan on every PR targeting main. Points at a self-hosted
+# SonarQube server (sonar.host.url in sonar-project.properties) reachable
+# from GitHub-hosted runners — same reachability already relied on by the
+# frontend's CI. SONAR_TOKEN is an org-level GitHub Actions secret.
+#
+# Currently INFORMATIONAL ONLY: the scan uploads analysis and you'll see
+# the result on the SonarQube server / as a PR check annotation, but a
+# failing Quality Gate does NOT block the merge yet. See the commented-out
+# "SonarQube Quality Gate Check" step below to turn on enforcement once
+# you're ready to make this a required check.
+# ─────────────────────────────────────────────────────────────────────────
+
+on:
+  pull_request:
+    branches:
+      - main
+
+env:
+  PYTHON_VERSION: '3.13'
+
+jobs:
+  sonarqube:
+    name: SonarQube Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history — SonarQube uses it for blame/SCM data
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Run core_lambda tests with coverage
+        working-directory: core_lambda
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+          PYTHONPATH=. python -m pytest tests/ --cov=. --cov-report=xml:coverage-core.xml -v
+
+      - name: Run edge_lambda tests with coverage
+        run: |
+          pip install pytest pytest-cov boto3
+          python -m pytest tests/test_edge_lambda.py tests/test_azure_jwt.py \
+            --cov=edge_lambda --cov-report=xml:coverage-edge.xml -v
+
+      - name: SonarQube Scan
+        uses: sonarsource/sonarqube-scan-action@v3
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      # ---------------------------------------------------------------------
+      # ENFORCEMENT — disabled for now (informational only).
+      #
+      # Uncomment to fail this job when the Quality Gate fails, then mark
+      # "SonarQube Quality Gate Check" as a required status check in the
+      # branch protection rule for `main` so a red gate actually blocks
+      # merging.
+      # ---------------------------------------------------------------------
+      # - name: SonarQube Quality Gate Check
+      #   uses: sonarsource/sonarqube-quality-gate-action@v1
+      #   timeout-minutes: 5
+      #   env:
+      #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

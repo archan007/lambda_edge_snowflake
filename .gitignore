@@ -12,6 +12,13 @@ __pycache__/
 venv/
 env/
 
+# SonarQube scanner + coverage reports
+.scannerwork/
+.sonar/
+coverage-core.xml
+coverage-edge.xml
+core_lambda/coverage-core.xml
+
 # IDE
 .vscode/
 .idea/
