@@ -108,6 +108,24 @@ jobs:
           path: "*.zip"
           retention-days: 7
 
+  # ===========================================================================
+  # Veracode static scan (via shared reusable workflow).
+  # PLACEHOLDER: replace the `uses:` ref below with the real
+  # org/repo/.github/workflows/python-ci.yml@ref once you have it.
+  # Runs independently of build/deploy — doesn't gate either.
+  # ===========================================================================
+  veracode-scan:
+    name: Veracode Static Scan
+    uses: CHANGE_ME_ORG/CHANGE_ME_REPO/.github/workflows/python-ci.yml@main
+    with:
+      python_version: '3.13'
+      # NOTE: python-ci.yml takes a single scan_path input — confirm the
+      # delimiter it expects (comma-separated assumed here) once the real
+      # workflow ref is filled in.
+      scan_path: 'core_lambda,edge_lambda'
+      is_docker: false
+    secrets: inherit
+
   deploy-dev:
     name: Deploy Core to DEV
     needs: build
